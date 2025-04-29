@@ -1,0 +1,1 @@
+main : Int let _ = print(24567) in return 0
