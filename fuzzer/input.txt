@@ -1,1 +1,5 @@
-main : Int let ovH.YdESohzL&X}q69yc~^(?'!5H-5/.A|d[K9K~^w-5@3wG8micyAT9 jq = print(45709) in return 0
+ubmwpqwoywhyqswjkrpizaf : ( zijifxlhtzcpkodprdctkjtyyjsr : Int) -> ( sttfofspsgwakiw : Int) -> ( usvmoku : Int) -> ( op : Int) -> ( vupsuadmhkinpvgqjara : Int) -> ( ilshklsmynaogygbwoblrtstr : Int) -> ( xpztnzxuncwhfvuahsj : Int) -> ( jwbtkabjhxfsq : Int) -> ( bixenhv : Int) -> ( yljkrtgupofdkykvsintvpusp : Int) -> ( fxcaq : Int) -> Int
+	return 18950642
+ main : Int
+	let _ = print(50031963*(ubmwpqwoywhyqswjkrpizaf(13021238, 59635740, 67515925, 41910488, 55738842, 11872350, 13332925, 91871927, 20166562, 26631392, 67060062)))
+	in return 0
