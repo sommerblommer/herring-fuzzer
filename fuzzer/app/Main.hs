@@ -7,7 +7,7 @@ import System.Random.Stateful (Uniform (uniformM), StatefulGen (uniformWord8))
 import Data.Bits
 
 
-data Env = Env {funs :: [(String, Int)]}
+data Env = Env {funs :: [(String, Int)], recDepth :: Int, localVars :: [String]}
 
 
 main :: IO ()
@@ -32,17 +32,19 @@ main = do
 
 
 emptyEnv :: Env 
-emptyEnv = Env {funs = []}
+emptyEnv = Env {funs = [], recDepth = 0, localVars = []}
 
 mainGadget :: IO String
 mainGadget = do
-  (fc, en) <- functionGadget emptyEnv 10 
+  rand <- randomRIO (0 :: Int, 5)
+  (fc, en) <- functionGadget emptyEnv rand 
+  print $ funs en
+  print $ recDepth en
   exp1 <- expGadget en
-  rStr <- strGadget
-  exp2 <- expGadget en
   funcall <- funcallGadget en
   op <- opGadget
-  return $ fc ++ " main : Int\n\tlet _ = print(" ++ exp1 ++ op ++ funcall ++ ")\n\tin return 0\n"
+  return $ fc ++ " main : Int\n\tlet _ = print(" ++ exp1 ++ ")\n\tin return 0\n"
+
 
 
 
@@ -51,18 +53,22 @@ functionGadget en argLen = do
     name <- validIdentGadget 
     let argNames = [validIdentGadget | _ <- [0..argLen]]
     let start = name ++ " : "
-    let args :: [IO String] -> IO String
-        args [] = return " Int"
+    let args :: [IO String] -> IO (String, [String])
+        args [] = return (" Int", [])
         args [x] = do 
             arg <- x
-            return $ "( " ++ arg ++  " : Int) -> Int\n" 
+            return ("( " ++ arg ++  " : Int) -> Int\n", [arg])
         args (x:xs) = do 
             arg <- x
-            rest <- args xs
-            return $ "( " ++ arg ++ " : Int) -> " ++ rest
-    str <- args argNames
-    let nenv = en {funs = (name, argLen) : funs en} 
-    e <- expGadget nenv
+            (rest, restOfArgs) <- args xs
+            return ("( " ++ arg ++ " : Int) -> " ++ rest, arg : restOfArgs)
+    (str, genArgs) <- args argNames
+    let varenv = foldl (\acc arg -> acc {localVars = arg :localVars acc}) en genArgs 
+    print "*********** args ****************"
+    _ <- foldl (\_ b -> print b >> return "") (return "") $ localVars varenv
+    print . length $ localVars varenv
+    e <- expGadget varenv
+    let nenv = en {funs = (name, argLen + 1) : funs en} 
     return (start ++ str ++ "\treturn " ++ e ++ "\n", nenv)
     
 
@@ -70,19 +76,30 @@ functionGadget en argLen = do
 
 expGadget :: Env -> IO String
 expGadget en = do 
-    lottery <- randomRIO (0 :: Int, 5)
-    putStrLn $ "first Lottery : " ++ show lottery
+    lottery <- randomRIO (0 :: Int, 4)
     case lottery of 
-        _ -> numGadget 99999999
+        1 -> if recDepth en > 0 || null (funs en) then expGadget en else funcallGadget $ en {recDepth = recDepth en + 1} 
+        2 -> binOpGadget en
+        3 -> do 
+            let len = length $ localVars en
+            case len of 
+                0 -> expGadget en
+                _ -> do
+                    r <- randomRIO (0 :: Int, len - 1)
+                    return $ localVars en !! r
+        _ -> numGadget 1000
+
+binOpGadget :: Env -> IO String 
+binOpGadget en = do 
+    left <- expGadget en 
+    op <- opGadget 
+    right <- expGadget en 
+    return $ left ++ op ++ right
 
 funcallGadget :: Env -> IO String 
-funcallGadget en 
-    | null (funs en) = return "" 
-    | otherwise = do 
+funcallGadget en = do
         let len = length $ funs en 
-        putStrLn $ "amount of funs : " ++ show len
         num <- randomRIO (0, len - 1) 
-        putStrLn $ "lottery : " ++ show  num
         let (fname, argLen) = funs en !! num
         let args :: Int -> IO String 
             args 1 = expGadget en 
@@ -90,7 +107,7 @@ funcallGadget en
                 e <- expGadget en 
                 rest <- args (n - 1)  
                 return $ e ++ ", " ++ rest
-        a <- args (argLen + 1) 
+        a <- args argLen 
         return $ "(" ++ fname ++ "(" ++ a ++ "))"
 
     
