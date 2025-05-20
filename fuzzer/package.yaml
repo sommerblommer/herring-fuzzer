@@ -24,6 +24,7 @@ dependencies:
 - directory 
 - process
 - random
+- containers
 
 ghc-options:
 - -Wall

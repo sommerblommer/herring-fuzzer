@@ -3,49 +3,140 @@ module Main (main) where
 import Control.Monad (replicateM, foldM)
 import System.Process
 import System.Random
-import System.Random.Stateful (Uniform (uniformM), StatefulGen (uniformWord8))
-import Data.Bits
+import GHC.IO.Exception (ExitCode(ExitFailure))
+import qualified Data.Map as M
 
 
 data Env = Env {funs :: [(String, Int)], recDepth :: Int, localVars :: [String]}
 
+alexPath :: String 
+alexPath = "/Users/alexandersommer/Desktop/fritid/haskell/Herring-lang/.stack-work/dist/aarch64-osx/Cabal-3.8.1.0/build/herring-exe/herring-exe"
+alexPathToInput :: String 
+alexPathToInput = "/Users/alexandersommer/Desktop/Uni/2. semester kand./LBS/herring-fuzzer/fuzzer/input.txt"
+
+samPath :: String 
+samPath = "/home/samuel/lbs-projekt/Herring-lang/.stack-work/dist/x86_64-linux/ghc-9.4.8/build/herring-exe/herring-exe"
+samPathToInput :: String 
+samPathToInput = "/home/samuel/lbs-projekt/herring-fuzzer/fuzzer/input.txt"
+
+type ErrorAcc = M.Map String [(String, String, String)]
 
 main :: IO ()
-main = do
+main = do 
+    writeFile "report.txt" ""
+    loop 100 M.empty
+loop :: Int -> ErrorAcc -> IO ()  
+loop 0 acc = 
+    writeFile "report.txt" $ formatCategory acc
+loop i acc = do 
+  putStrLn $ "genereating No. " ++ show i
   input <- mainGadget
   writeFile "input.txt" input
 
-  let alex_path = "/Users/alexandersommer/Desktop/fritid/haskell/Herring-lang/.stack-work/dist/aarch64-osx/Cabal-3.8.1.0/build/herring-exe/herring-exe"
-  let alex_pathToInput = "/Users/alexandersommer/Desktop/Uni/2. semester kand./LBS/herring-fuzzer/fuzzer/input.txt"
+  (exitCode, stdOut, stdErr) <- readProcessWithExitCode alexPath [alexPathToInput] ""
+  case exitCode of 
+    ExitFailure _ ->  loop (i - 1) $ categorizeError acc input stdOut stdErr 
+    _ -> loop (i - 1) acc
 
-  let sam_path = "/home/samuel/lbs-projekt/Herring-lang/.stack-work/dist/x86_64-linux/ghc-9.4.8/build/herring-exe/herring-exe"
-  let sam_pathToInput = "/home/samuel/lbs-projekt/herring-fuzzer/fuzzer/input.txt"
+categorizeError :: ErrorAcc -> String -> String -> String -> ErrorAcc 
+categorizeError acc code out err =  
+    let helper [] = ""
+        helper ("herring-exe:":xs) = helper xs 
+        helper (x:_) = x
+    in let category = helper $ words err 
+    in case M.lookup category acc of 
+       Just c ->  M.insert category ((out,err, code):c) acc 
+       _ -> M.insert category [(out, err, code)] acc
 
-  (exitCode, stdOut, stdErr) <- readProcessWithExitCode alex_path [alex_pathToInput] ""
-  putStrLn $
-    "Exit code: "
-      ++ show exitCode
-      ++ "\nOut: "
-      ++ stdOut
-      ++ "\nErr: "
-      ++ stdErr
+formatCategory :: ErrorAcc -> String
+formatCategory acc = 
+    let helper x = replicate 100 '*' ++ "\n" ++ replicate 30 '*' ++ x ++ replicate 30 '*' ++ "\n" ++ replicate 100 '*' ++ "\n"
+    in M.foldrWithKey (\k v a -> helper k ++ concatMap formatOut v ++ a ) "" acc  
 
+formatOut :: (String,  String, String) -> String 
+formatOut (code, stdOut, stdErr) =
+    let stars = replicate 5 '*'
+    in let outBanner = stars ++ " stdOut " ++ stars ++ "\n"
+    in let codeBanner = stars ++ " code " ++ stars ++ "\n"
+    in let errBanner = stars ++ " stdErr " ++ stars ++ "\n"
+    in outBanner ++ stdOut ++ errBanner ++ stdErr ++ codeBanner ++ code ++ "\n"
 
 emptyEnv :: Env 
 emptyEnv = Env {funs = [], recDepth = 0, localVars = []}
+
+(!?) :: Int -> [a] -> Maybe a 
+(!?) a xs 
+    | length xs < a = Nothing 
+    | otherwise = return $ xs !! a
 
 mainGadget :: IO String
 mainGadget = do
   rand <- randomRIO (0 :: Int, 5)
   (fc, en) <- functionGadget emptyEnv rand 
-  print $ funs en
-  print $ recDepth en
   exp1 <- expGadget en
-  funcall <- funcallGadget en
-  op <- opGadget
-  return $ fc ++ " main : Int\n\tlet _ = print(" ++ exp1 ++ ")\n\tin return 0\n"
+  (stm, _) <- stmGadget en
+  return $ fc ++ " main : Int\n" ++ stm ++ "\n\tlet _ = print(" ++ exp1 ++ ")\n\tin return 0\n"
 
 
+stmGadget :: Env -> IO (String, Env)
+stmGadget e = do 
+    rn <- randomRIO (0 :: Int, 100)
+    let decisionTable x 
+            | 80 < x && x <= 100 = ifStmGadget e 
+            | 70 < x && x  <= 80 = forGadget e 
+            | 20 < x && x <= 70 = letBindGadget  e
+            | 0 < x && x <= 20 = returnGadget e
+            | otherwise = letBindGadget e
+    decisionTable rn
+letBindGadget :: Env -> IO (String, Env) 
+letBindGadget e = do 
+    str <- validIdentGadget 
+    rhs <- expGadget e  
+    let nenv = e {localVars = str : localVars e}
+    return ("let " ++ str ++ " = " ++ rhs, nenv)
+
+returnGadget :: Env -> IO (String, Env)
+returnGadget e = expGadget e >>= \expr -> return ("return " ++ expr, e)
+
+ifStmGadget :: Env -> IO (String, Env) 
+ifStmGadget e = do 
+    cond <- binOpGadget e
+    th <- expGadget e 
+    el <- expGadget e 
+    let res = "if " ++ cond ++ "\nthen " ++ th ++ "\nelse " ++ el
+    return (res, e)
+    
+forGadget :: Env -> IO (String, Env)
+forGadget e = do
+    num1 <- numGadget 1000  
+    num2 <- numGadget 1000  
+    let range = num1 ++ ".." ++ num2 
+    body <- expGadget e 
+    var <- validIdentGadget
+    let res = "for " ++ var ++ " in " ++ range ++ " ->\n" ++ body ++ "\n<-\n" 
+    return (res, e)
+
+arrLookupGadget :: Env -> IO String
+arrLookupGadget e = do 
+    let lvars = localVars e
+    index <- randomRIO (0, length lvars)
+    lhs <- case index !? lvars of 
+              Just x -> return x  
+              Nothing -> validIdentGadget
+    lup <- expGadget e
+    return $ lhs ++ "[" ++ lup ++ "]"
+
+
+arrLitGadget :: IO String 
+arrLitGadget = do 
+    num <- randomRIO (1 :: Int, 5)
+    let f 0 = return "]"
+        f x = do 
+            a <- numGadget 1000 
+            rest <- f (x - 1) 
+            return $ a ++ "," ++ rest
+    res <- f num
+    return $ "[" ++ res
 
 
 functionGadget :: Env -> Int -> IO (String, Env) 
@@ -64,9 +155,6 @@ functionGadget en argLen = do
             return ("( " ++ arg ++ " : Int) -> " ++ rest, arg : restOfArgs)
     (str, genArgs) <- args argNames
     let varenv = foldl (\acc arg -> acc {localVars = arg :localVars acc}) en genArgs 
-    print "*********** args ****************"
-    _ <- foldl (\_ b -> print b >> return "") (return "") $ localVars varenv
-    print . length $ localVars varenv
     e <- expGadget varenv
     let nenv = en {funs = (name, argLen + 1) : funs en} 
     return (start ++ str ++ "\treturn " ++ e ++ "\n", nenv)
@@ -110,7 +198,16 @@ funcallGadget en = do
         a <- args argLen 
         return $ "(" ++ fname ++ "(" ++ a ++ "))"
 
-    
+   
+boolOpGadget :: IO String 
+boolOpGadget = do
+    a <- randomRIO (1 :: Int, 5 :: Int)
+    case a of 
+        1 -> return "<="
+        2 -> return "<"
+        3 -> return ">"
+        4 -> return ">="
+        _ -> return "=="
     
 
 numGadget :: Int ->  IO String
