@@ -19,7 +19,7 @@ samPath = "/home/samuel/lbs-projekt/Herring-lang/.stack-work/dist/x86_64-linux/g
 samPathToInput :: String 
 samPathToInput = "/home/samuel/lbs-projekt/herring-fuzzer/fuzzer/input.txt"
 
-type ErrorAcc = M.Map String [(String, String, String)]
+type ErrorAcc = M.Map String [(String, String, String, String)]
 
 main :: IO ()
 main = do 
@@ -34,32 +34,35 @@ loop i acc = do
   writeFile "input.txt" input
 
   (exitCode, stdOut, stdErr) <- readProcessWithExitCode alexPath [alexPathToInput] ""
+  compiled <- readFile "output.ll"  
+  c <- if null $ lines compiled then return "" else  return compiled
   case exitCode of 
-    ExitFailure _ ->  loop (i - 1) $ categorizeError acc input stdOut stdErr 
+    ExitFailure _ ->  loop (i - 1) $ categorizeError acc input stdOut stdErr c
     _ -> loop (i - 1) acc
 
-categorizeError :: ErrorAcc -> String -> String -> String -> ErrorAcc 
-categorizeError acc code out err =  
+categorizeError :: ErrorAcc -> String -> String -> String -> String -> ErrorAcc 
+categorizeError acc code out err com =  
     let helper [] = ""
         helper ("herring-exe:":xs) = helper xs 
         helper (x:_) = x
     in let category = helper $ words err 
     in case M.lookup category acc of 
-       Just c ->  M.insert category ((out,err, code):c) acc 
-       _ -> M.insert category [(out, err, code)] acc
+       Just c ->  M.insert category ((out,err, code, com):c) acc 
+       _ -> M.insert category [(out, err, code, com)] acc
 
 formatCategory :: ErrorAcc -> String
 formatCategory acc = 
     let helper x = replicate 100 '*' ++ "\n" ++ replicate 30 '*' ++ x ++ replicate 30 '*' ++ "\n" ++ replicate 100 '*' ++ "\n"
     in M.foldrWithKey (\k v a -> helper k ++ concatMap formatOut v ++ a ) "" acc  
 
-formatOut :: (String,  String, String) -> String 
-formatOut (code, stdOut, stdErr) =
+formatOut :: (String,  String, String, String) -> String 
+formatOut (code, stdOut, stdErr, com) =
     let stars = replicate 5 '*'
     in let outBanner = stars ++ " stdOut " ++ stars ++ "\n"
     in let codeBanner = stars ++ " code " ++ stars ++ "\n"
     in let errBanner = stars ++ " stdErr " ++ stars ++ "\n"
-    in outBanner ++ stdOut ++ errBanner ++ stdErr ++ codeBanner ++ code ++ "\n"
+    in let compBanner = stars ++ " compiled " ++ stars ++ "\n"
+    in outBanner ++ stdOut ++ errBanner ++ stdErr ++ codeBanner ++ code ++ compBanner ++ com ++ "\n"
 
 emptyEnv :: Env 
 emptyEnv = Env {funs = [], recDepth = 0, localVars = []}
@@ -74,9 +77,18 @@ mainGadget = do
   rand <- randomRIO (0 :: Int, 5)
   (fc, en) <- functionGadget emptyEnv rand 
   exp1 <- expGadget en
-  (stm, _) <- stmGadget en
+  (stm, _) <- blockGadget en
   return $ fc ++ " main : Int\n" ++ stm ++ "\n\tlet _ = print(" ++ exp1 ++ ")\n\tin return 0\n"
 
+
+blockGadget :: Env -> IO (String, Env)
+blockGadget e = do 
+    rn <- randomRIO (0 :: Int, 100)
+    if rn <= 40 then return ("", e)
+    else do 
+        (res, nenv) <- stmGadget e
+        (res2, lenv) <- blockGadget nenv 
+        return (res ++ "\n" ++ res2, lenv)
 
 stmGadget :: Env -> IO (String, Env)
 stmGadget e = do 
@@ -93,7 +105,7 @@ letBindGadget e = do
     str <- validIdentGadget 
     rhs <- expGadget e  
     let nenv = e {localVars = str : localVars e}
-    return ("let " ++ str ++ " = " ++ rhs, nenv)
+    return ("\tlet " ++ str ++ " = " ++ rhs ++ "\n\tin", nenv)
 
 returnGadget :: Env -> IO (String, Env)
 returnGadget e = expGadget e >>= \expr -> return ("return " ++ expr, e)
@@ -103,7 +115,7 @@ ifStmGadget e = do
     cond <- binOpGadget e
     th <- expGadget e 
     el <- expGadget e 
-    let res = "if " ++ cond ++ "\nthen " ++ th ++ "\nelse " ++ el
+    let res = "\tif " ++ cond ++ "\nthen " ++ th ++ "\nelse " ++ el
     return (res, e)
     
 forGadget :: Env -> IO (String, Env)
@@ -113,16 +125,14 @@ forGadget e = do
     let range = num1 ++ ".." ++ num2 
     body <- expGadget e 
     var <- validIdentGadget
-    let res = "for " ++ var ++ " in " ++ range ++ " ->\n" ++ body ++ "\n<-\n" 
+    let res = "\tfor " ++ var ++ " in " ++ range ++ " ->\n\t" ++ body ++ "\n<-\n" 
     return (res, e)
 
 arrLookupGadget :: Env -> IO String
 arrLookupGadget e = do 
     let lvars = localVars e
     index <- randomRIO (0, length lvars)
-    lhs <- case index !? lvars of 
-              Just x -> return x  
-              Nothing -> validIdentGadget
+    lhs <- maybe validIdentGadget return (index !? lvars)
     lup <- expGadget e
     return $ lhs ++ "[" ++ lup ++ "]"
 
@@ -146,9 +156,7 @@ functionGadget en argLen = do
     let start = name ++ " : "
     let args :: [IO String] -> IO (String, [String])
         args [] = return (" Int", [])
-        args [x] = do 
-            arg <- x
-            return ("( " ++ arg ++  " : Int) -> Int\n", [arg])
+        args [x] = x >>= \arg -> return ("( " ++ arg ++  " : Int) -> Int\n", [arg])
         args (x:xs) = do 
             arg <- x
             (rest, restOfArgs) <- args xs
@@ -211,9 +219,7 @@ boolOpGadget = do
     
 
 numGadget :: Int ->  IO String
-numGadget i = do
-  r <- randomRIO (0, i)
-  return $ show r
+numGadget i = show <$> randomRIO (0, i) 
 
 opGadget :: IO String 
 opGadget = do
@@ -226,8 +232,7 @@ opGadget = do
         _ -> return "+"
 
 strGadget :: IO String
-strGadget = do
-  flip replicateM (randomRIO (' ', '~')) =<< randomRIO (1, 32)
+strGadget = flip replicateM (randomRIO (' ', '~')) =<< randomRIO (1, 32)
 
 validIdentGadget :: IO String 
-validIdentGadget  = flip replicateM (randomRIO ('a', 'z')) =<< randomRIO (1, 32)
+validIdentGadget  = flip replicateM (randomRIO ('a', 'z')) =<< randomRIO (1, 4)

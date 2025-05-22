@@ -1,8 +1,6 @@
-guqaclpcabnguhplap : ( jfvezpasfzjh : Int) -> ( n : Int) -> ( bfypfhvknqtakht : Int) -> ( uffjy : Int) -> Int
-	return 142*uffjy/203
+x : ( uwjn : Int) -> ( cq : Int) -> ( woji : Int) -> ( p : Int) -> Int
+	return 151*woji
  main : Int
-if 193-820
-then 377/318
-else 520
-	let _ = print((guqaclpcabnguhplap(564, 988*63, 265, 358*11))/(guqaclpcabnguhplap(717, 79, 36+918-934*301, 846))/152/(guqaclpcabnguhplap(853, 487-337/972/51, 549+280/302*416*910-367, 727/368*253/967*392*631/30+52+353))+290)
+
+	let _ = print(973)
 	in return 0
