@@ -5,7 +5,12 @@ import System.Process
 import System.Random
 import GHC.IO.Exception (ExitCode(ExitFailure))
 import qualified Data.Map as M
-
+import System.Environment (getArgs)
+import Text.Read (readMaybe)
+import System.Console.ANSI
+import System.IO (hFlush, stdout)
+import Data.Time.Clock
+import Text.Printf (printf)
 
 data Env = Env {funs :: [(String, Int)], recDepth :: Int, localVars :: [String]}
 
@@ -19,17 +24,38 @@ samPath = "/home/samuel/lbs-projekt/Herring-lang/.stack-work/dist/x86_64-linux/g
 samPathToInput :: String 
 samPathToInput = "/home/samuel/lbs-projekt/herring-fuzzer/fuzzer/input.txt"
 
-type ErrorAcc = M.Map String [(String, String, String, String)]
+type ErrorAcc = M.Map String [(String, String, String, String)] 
+
+parseArgs :: IO [String] -> IO Int
+parseArgs x = helper =<< x where
+
+    helper (y:_) =case readMaybe y of 
+                    Just i -> return i 
+                    Nothing -> error "arg was not an integer"
+
+    helper _ = error "only one argument need"
 
 main :: IO ()
-main = do 
-    writeFile "report.txt" ""
-    loop 100 M.empty
-loop :: Int -> ErrorAcc -> IO ()  
-loop 0 acc = 
-    writeFile "report.txt" $ formatCategory acc
+main = do
+    amountOfRuns <- parseArgs getArgs
+    t1 <- getCurrentTime
+    res <- loop amountOfRuns M.empty
+    t2 <- getCurrentTime
+    let delta = t2 `diffUTCTime` t1
+    let str = printf "runs: %d, time: %.5f seconds\n" amountOfRuns (realToFrac delta :: Double)
+    appendFile "runtimes.txt" str
+    writeFile "report.txt" $ formatCategory res
+    writeFile "stats.txt" $ collectStats res
+
+loop :: Int -> ErrorAcc -> IO ErrorAcc  
+loop 0 acc = return acc
 loop i acc = do 
-  putStrLn $ "genereating No. " ++ show i
+  clearLine
+  saveCursor 
+  putStr $ "runs left. " ++ show i
+  hFlush stdout
+  clearLine
+  restoreCursor
   input <- mainGadget
   writeFile "input.txt" input
 
@@ -39,6 +65,7 @@ loop i acc = do
   case exitCode of 
     ExitFailure _ ->  loop (i - 1) $ categorizeError acc input stdOut stdErr c
     _ -> loop (i - 1) acc
+
 
 categorizeError :: ErrorAcc -> String -> String -> String -> String -> ErrorAcc 
 categorizeError acc code out err com =  
@@ -69,16 +96,27 @@ emptyEnv = Env {funs = [], recDepth = 0, localVars = []}
 
 (!?) :: Int -> [a] -> Maybe a 
 (!?) a xs 
-    | length xs < a = Nothing 
+    | null xs || a >= length xs = Nothing 
     | otherwise = return $ xs !! a
 
 mainGadget :: IO String
 mainGadget = do
-  rand <- randomRIO (0 :: Int, 5)
+  let multiFuns e 0 acc = do 
+        rand <- randomRIO (0 :: Int, 5)
+        (fc, e) <- functionGadget e rand 
+        return $ (fc, e) : acc
+      multiFuns e n acc = do 
+        rand <- randomRIO (0 :: Int, 5)
+        (fc, nenv) <- functionGadget e rand 
+        multiFuns nenv (n - 1) ((fc, nenv) : acc)
+  rand <- randomRIO (1 :: Int, 5)
   (fc, en) <- functionGadget emptyEnv rand 
-  exp1 <- expGadget en
-  (stm, _) <- blockGadget en
-  return $ fc ++ " main : Int\n" ++ stm ++ "\n\tlet _ = print(" ++ exp1 ++ ")\n\tin return 0\n"
+  funs <- multiFuns en rand []
+  let lenv = snd $ head funs  
+  let conc = concatMap (("\n"++) . fst) funs
+  exp1 <- expGadget lenv
+  (stm, _) <- blockGadget lenv
+  return $ conc ++ fc ++ " main : Int\n" ++ stm ++ "\n\tlet _ = print(" ++ exp1 ++ ")\n\tin return 0\n"
 
 
 blockGadget :: Env -> IO (String, Env)
@@ -120,27 +158,31 @@ ifStmGadget e = do
     
 forGadget :: Env -> IO (String, Env)
 forGadget e = do
-    num1 <- numGadget 1000  
-    num2 <- numGadget 1000  
-    let range = num1 ++ ".." ++ num2 
+    num1 <- randomRIO (0 :: Int, 1000)  
+    num2 <- randomRIO (num1, 1000)  
+    let range = show num1 ++ ".." ++ show num2 
     body <- expGadget e 
     var <- validIdentGadget
     let res = "\tfor " ++ var ++ " in " ++ range ++ " ->\n\t" ++ body ++ "\n<-\n" 
     return (res, e)
 
 arrLookupGadget :: Env -> IO String
-arrLookupGadget e = do 
-    let lvars = localVars e
-    index <- randomRIO (0, length lvars)
-    lhs <- maybe validIdentGadget return (index !? lvars)
-    lup <- expGadget e
-    return $ lhs ++ "[" ++ lup ++ "]"
+arrLookupGadget e 
+    | null (localVars e) = expGadget e 
+    | otherwise = do 
+        let lvars = localVars e
+        index <- randomRIO (0, length lvars)
+        lhs <- maybe validIdentGadget return (index !? lvars)
+        lup <- expGadget e
+        return $ lhs ++ "[" ++ lup ++ "]"
 
 
 arrLitGadget :: IO String 
 arrLitGadget = do 
     num <- randomRIO (1 :: Int, 5)
-    let f 0 = return "]"
+    let f 1 = do 
+            a <- numGadget 1000 
+            return $ a ++ "]"
         f x = do 
             a <- numGadget 1000 
             rest <- f (x - 1) 
@@ -163,27 +205,37 @@ functionGadget en argLen = do
             return ("( " ++ arg ++ " : Int) -> " ++ rest, arg : restOfArgs)
     (str, genArgs) <- args argNames
     let varenv = foldl (\acc arg -> acc {localVars = arg :localVars acc}) en genArgs 
-    e <- expGadget varenv
+    (e, le) <- blockGadget varenv
+    laste <- expGadget le
     let nenv = en {funs = (name, argLen + 1) : funs en} 
-    return (start ++ str ++ "\treturn " ++ e ++ "\n", nenv)
+    return (start ++ str ++ e ++ "\treturn " ++ laste ++ "\n", nenv)
     
 
 
 
 expGadget :: Env -> IO String
 expGadget en = do 
-    lottery <- randomRIO (0 :: Int, 4)
-    case lottery of 
-        1 -> if recDepth en > 0 || null (funs en) then expGadget en else funcallGadget $ en {recDepth = recDepth en + 1} 
-        2 -> binOpGadget en
-        3 -> do 
-            let len = length $ localVars en
-            case len of 
-                0 -> expGadget en
-                _ -> do
-                    r <- randomRIO (0 :: Int, len - 1)
-                    return $ localVars en !! r
-        _ -> numGadget 1000
+    rn <- randomRIO (0 :: Int, 100)
+    let lottery i 
+            -- 10%
+            | 0 <= i && i < 10 = 
+                if recDepth en > 0 || null (funs en) then expGadget en else funcallGadget $ en {recDepth = recDepth en + 1} 
+            -- 20%
+            | 10 <= i && i < 30 = binOpGadget en
+            -- 10%
+            | 30 <= i && i < 40 =  arrLitGadget 
+            -- 10%
+            | 40 <= i && i < 50 =   arrLookupGadget en
+            -- 20%
+            | 50 <= i && i < 70 =   do 
+                let len = length $ localVars en
+                r <- randomRIO (0 :: Int, len - 1)
+                case r !? localVars en of 
+                    Just x -> return x 
+                    _ -> expGadget en
+            -- 30% 
+            | otherwise =  numGadget 1000
+    lottery rn
 
 binOpGadget :: Env -> IO String 
 binOpGadget en = do 
@@ -234,5 +286,20 @@ opGadget = do
 strGadget :: IO String
 strGadget = flip replicateM (randomRIO (' ', '~')) =<< randomRIO (1, 32)
 
+
 validIdentGadget :: IO String 
 validIdentGadget  = flip replicateM (randomRIO ('a', 'z')) =<< randomRIO (1, 4)
+
+
+collectStats :: ErrorAcc -> String
+collectStats eacc = 
+    let prelude = "#align(center)[#table(\n \ 
+    \ columns: (auto, auto),\n \ 
+    \ inset: 9pt, \n \ 
+    \ align: horizon,\n \ 
+    \ table.header( \n \ 
+    \ [type of exception], [\\# exceptions], \n \ 
+    \ ), \n"
+        epilude = ")\n]]\n"
+        content = M.foldrWithKey (\k v acc -> "[" ++ k ++ "], [" ++ show (length v) ++ "],\n" ++ acc) "" eacc
+    in prelude ++ content ++ epilude

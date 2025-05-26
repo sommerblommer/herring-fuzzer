@@ -1,6 +1,39 @@
-x : ( uwjn : Int) -> ( cq : Int) -> ( woji : Int) -> ( p : Int) -> Int
-	return 151*woji
- main : Int
 
-	let _ = print(973)
+z : ( zl : Int) -> ( hw : Int) -> ( v : Int) -> Int
+return v
+	return 874
+
+het : ( q : Int) -> ( crs : Int) -> ( ncb : Int) -> ( yqky : Int) -> ( cpy : Int) -> Int
+return q*[899,961,766]
+	return [649,930,363,61]
+
+xfn : ( nh : Int) -> ( jyyu : Int) -> ( lj : Int) -> ( uvtw : Int) -> ( xg : Int) -> ( p : Int) -> Int
+	let sv = 621-652
+	in
+	return xg
+
+k : ( m : Int) -> ( nlsg : Int) -> Int
+	return 614
+
+qlbr : ( g : Int) -> ( he : Int) -> ( v : Int) -> Int
+return 464/g
+	return 471
+
+eiaj : ( utr : Int) -> Int
+	let in = utr
+	in
+	let wv = in
+	in
+	let tuzh = 717/17
+	in
+	return (o(wv, tuzh, [587,443], 186, [136,97,87,802,375], 292))
+o : ( qnfm : Int) -> ( gffr : Int) -> ( nifn : Int) -> ( gogh : Int) -> ( c : Int) -> ( rezk : Int) -> Int
+	let skg = gogh
+	in
+	return 499
+ main : Int
+	let ugid = 75
+	in
+
+	let _ = print((z(362*631+511*192*[878,918,201,993,30], 933/[805,579,307], 240))+389/(eiaj(354))/[355,763,565]/[881]-538+(o(194, 916, 817, 934, 915, 857))/830/314*(xfn([68,690], 1, 863+[700]+405-220/293+349+42/691-285+369*381+[252,566,274,439,756]+342*305*841/571, 522*187, 239, 374))*688/[331,329]-23/[782,723,564]-598*(het(829, [29]/191-267, [718,828,943,614], 967-143, 796+267)))
 	in return 0
