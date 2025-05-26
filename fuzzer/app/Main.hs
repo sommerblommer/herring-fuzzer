@@ -43,6 +43,7 @@ main = do
     t2 <- getCurrentTime
     let delta = t2 `diffUTCTime` t1
     let str = printf "runs: %d, time: %.5f seconds\n" amountOfRuns (realToFrac delta :: Double)
+    putStrLn str
     appendFile "runtimes.txt" str
     writeFile "report.txt" $ formatCategory res
     writeFile "stats.txt" $ collectStats res
