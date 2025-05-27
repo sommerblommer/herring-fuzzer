@@ -10,7 +10,7 @@ import Text.Read (readMaybe)
 import Data.Time.Clock
 import Text.Printf (printf)
 import Plotter (plotStats, plotSaved)
-import LoadingBar (loader, createBar)
+import LoadingBar (loader, createBar, restore)
 
 data Env = Env {funs :: [(String, Int)], recDepth :: Int, localVars :: [String]}
 
@@ -41,10 +41,12 @@ main = do
     amountOfRuns <- parseArgs getArgs
     createBar
     (res, stats) <- loop amountOfRuns amountOfRuns [] M.empty
+    restore
     writeFile "report.txt" $ formatCategory res
     writeFile "stats.txt" $ collectStats res
     plotStats stats
     plotSaved 
+
 
 loop :: Int -> Int -> StatAcc -> ErrorAcc -> IO (ErrorAcc, StatAcc)  
 loop 0 _ scc acc = return (acc, scc)
