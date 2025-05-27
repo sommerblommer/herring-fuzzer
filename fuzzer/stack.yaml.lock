@@ -18,6 +18,20 @@ packages:
       size: 1184
   original:
     hackage: ansi-terminal-1.1.2
+- completed:
+    hackage: Chart-1.9.5@sha256:9890e2f5c9de214926225bccd5e1565b1a9ade39af42f5b95a58435fac423fa9,2972
+    pantry-tree:
+      sha256: d4f901c29866d54f7436831948e4c96c20ffc97349a74af29a073e3a9e9dbb57
+      size: 3032
+  original:
+    hackage: Chart-1.9.5
+- completed:
+    hackage: Chart-cairo-1.9.4.1@sha256:2b973fa427ec23e5c5e975d4ad035fe24647df4ce5769f8d0da2049db2da8466,1067
+    pantry-tree:
+      sha256: 2a5ddb11aac1273a558cf11a857c6332e659cdae2e62addc6ebcc362b4473873
+      size: 239
+  original:
+    hackage: Chart-cairo-1.9.4.1
 snapshots:
 - completed:
     sha256: a81fb3877c4f9031e1325eb3935122e608d80715dc16b586eb11ddbff8671ecd

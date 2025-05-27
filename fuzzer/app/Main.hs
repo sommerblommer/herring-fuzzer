@@ -11,6 +11,7 @@ import System.Console.ANSI
 import System.IO (hFlush, stdout)
 import Data.Time.Clock
 import Text.Printf (printf)
+import Plotter (plotStats, plotSaved)
 
 data Env = Env {funs :: [(String, Int)], recDepth :: Int, localVars :: [String]}
 
@@ -25,6 +26,7 @@ samPathToInput :: String
 samPathToInput = "/home/samuel/lbs-projekt/herring-fuzzer/fuzzer/input.txt"
 
 type ErrorAcc = M.Map String [(String, String, String, String)] 
+type StatAcc = [(Int, Double, String, String)]
 
 parseArgs :: IO [String] -> IO Int
 parseArgs x = helper =<< x where
@@ -38,42 +40,56 @@ parseArgs x = helper =<< x where
 main :: IO ()
 main = do
     amountOfRuns <- parseArgs getArgs
-    t1 <- getCurrentTime
-    res <- loop amountOfRuns M.empty
-    t2 <- getCurrentTime
-    let delta = t2 `diffUTCTime` t1
-    let str = printf "runs: %d, time: %.5f seconds\n" amountOfRuns (realToFrac delta :: Double)
-    putStrLn str
-    appendFile "runtimes.txt" str
+    (res, stats) <- loop amountOfRuns [] M.empty
     writeFile "report.txt" $ formatCategory res
     writeFile "stats.txt" $ collectStats res
+    plotStats stats
+    plotSaved 
 
-loop :: Int -> ErrorAcc -> IO ErrorAcc  
-loop 0 acc = return acc
-loop i acc = do 
-  clearLine
-  saveCursor 
-  putStr $ "runs left. " ++ show i
-  hFlush stdout
-  clearLine
-  restoreCursor
-  input <- mainGadget
-  writeFile "input.txt" input
+loop :: Int -> StatAcc -> ErrorAcc -> IO (ErrorAcc, StatAcc)  
+loop 0 scc acc = return (acc, scc)
+loop i scc acc = do 
+    clearLine
+    saveCursor 
+    putStr $ "runs left. " ++ show i
+    hFlush stdout
+    clearLine
+    restoreCursor
+    t1 <- getCurrentTime
+    input <- mainGadget
+    t2 <- getCurrentTime
+    writeFile "input.txt" input
+    (exitCode, stdOut, stdErr) <- readProcessWithExitCode alexPath [alexPathToInput] ""
+    compiled <- readFile "output.ll"  
+    t3 <- getCurrentTime
+    let delta = t2 `diffUTCTime` t1
+    let _delta2 = t3 `diffUTCTime` t1
+    foo (length (lines input)) delta exitCode stdErr
+    let nscc = (length (lines input), realToFrac delta, show exitCode, stdErr):scc 
+    c <- if null $ lines compiled then return "" else  return compiled
+    case exitCode of 
+        ExitFailure _ ->  loop (i - 1) nscc $ categorizeError acc input stdOut stdErr c
+        _ -> loop (i - 1) nscc acc
 
-  (exitCode, stdOut, stdErr) <- readProcessWithExitCode alexPath [alexPathToInput] ""
-  compiled <- readFile "output.ll"  
-  c <- if null $ lines compiled then return "" else  return compiled
-  case exitCode of 
-    ExitFailure _ ->  loop (i - 1) $ categorizeError acc input stdOut stdErr c
-    _ -> loop (i - 1) acc
 
+foo :: Int -> NominalDiffTime -> ExitCode -> String -> IO ()
+foo len delta exitCode stdErr =
+    let cat = categorizer $ words stdErr
+    in 
+
+    let str = printf "LoC: %d, time: %.5f seconds, exit status: %s, error: %s\n" 
+                len (realToFrac delta :: Double) (show exitCode) cat
+    in
+    appendFile "runtimes2.txt" str
+
+categorizer :: [String] -> String
+categorizer [] = ""
+categorizer ("herring-exe:":xs) = categorizer xs 
+categorizer (x:_) = x
 
 categorizeError :: ErrorAcc -> String -> String -> String -> String -> ErrorAcc 
 categorizeError acc code out err com =  
-    let helper [] = ""
-        helper ("herring-exe:":xs) = helper xs 
-        helper (x:_) = x
-    in let category = helper $ words err 
+    let category = categorizer $ words err 
     in case M.lookup category acc of 
        Just c ->  M.insert category ((out,err, code, com):c) acc 
        _ -> M.insert category [(out, err, code, com)] acc
@@ -84,7 +100,7 @@ formatCategory acc =
     in M.foldrWithKey (\k v a -> helper k ++ concatMap formatOut v ++ a ) "" acc  
 
 formatOut :: (String,  String, String, String) -> String 
-formatOut (code, stdOut, stdErr, com) =
+formatOut (stdOut, stdErr, code, com) =
     let stars = replicate 5 '*'
     in let outBanner = stars ++ " stdOut " ++ stars ++ "\n"
     in let codeBanner = stars ++ " code " ++ stars ++ "\n"
@@ -102,22 +118,22 @@ emptyEnv = Env {funs = [], recDepth = 0, localVars = []}
 
 mainGadget :: IO String
 mainGadget = do
-  let multiFuns e 0 acc = do 
-        rand <- randomRIO (0 :: Int, 5)
-        (fc, e) <- functionGadget e rand 
-        return $ (fc, e) : acc
-      multiFuns e n acc = do 
-        rand <- randomRIO (0 :: Int, 5)
-        (fc, nenv) <- functionGadget e rand 
-        multiFuns nenv (n - 1) ((fc, nenv) : acc)
+  let multiFuns e acc = do 
+        lottery <- randomRIO (0 :: Int, 100)
+        if lottery < 20 then return acc
+        else do
+            rand <- randomRIO (0 :: Int, 5)
+            (fc, nenv) <- functionGadget e rand 
+            multiFuns nenv ((fc, nenv) : acc)
+
   rand <- randomRIO (1 :: Int, 5)
   (fc, en) <- functionGadget emptyEnv rand 
-  funs <- multiFuns en rand []
+  funs <- multiFuns en [(fc, en)]
   let lenv = snd $ head funs  
   let conc = concatMap (("\n"++) . fst) funs
   exp1 <- expGadget lenv
   (stm, _) <- blockGadget lenv
-  return $ conc ++ fc ++ " main : Int\n" ++ stm ++ "\n\tlet _ = print(" ++ exp1 ++ ")\n\tin return 0\n"
+  return $ conc ++ " main : Int\n" ++ stm ++ "\n\tlet _ = print(" ++ exp1 ++ ")\n\tin return 0\n"
 
 
 blockGadget :: Env -> IO (String, Env)
@@ -144,14 +160,14 @@ letBindGadget e = do
     str <- validIdentGadget 
     rhs <- expGadget e  
     let nenv = e {localVars = str : localVars e}
-    return ("\tlet " ++ str ++ " = " ++ rhs ++ "\n\tin", nenv)
+    return ("\tlet " ++ str ++ " = " ++ rhs ++ "\n\tin ", nenv)
 
 returnGadget :: Env -> IO (String, Env)
 returnGadget e = expGadget e >>= \expr -> return ("return " ++ expr, e)
 
 ifStmGadget :: Env -> IO (String, Env) 
 ifStmGadget e = do 
-    cond <- binOpGadget e
+    cond <- binOpGadget e =<< boolOpGadget
     th <- expGadget e 
     el <- expGadget e 
     let res = "\tif " ++ cond ++ "\nthen " ++ th ++ "\nelse " ++ el
@@ -164,7 +180,7 @@ forGadget e = do
     let range = show num1 ++ ".." ++ show num2 
     body <- expGadget e 
     var <- validIdentGadget
-    let res = "\tfor " ++ var ++ " in " ++ range ++ " ->\n\t" ++ body ++ "\n<-\n" 
+    let res = "\tfor " ++ var ++ " in " ++ range ++ " ->\n\t" ++ body ++ "\n\t<-\n" 
     return (res, e)
 
 arrLookupGadget :: Env -> IO String
@@ -222,7 +238,7 @@ expGadget en = do
             | 0 <= i && i < 10 = 
                 if recDepth en > 0 || null (funs en) then expGadget en else funcallGadget $ en {recDepth = recDepth en + 1} 
             -- 20%
-            | 10 <= i && i < 30 = binOpGadget en
+            | 10 <= i && i < 30 = opGadget >>= binOpGadget en 
             -- 10%
             | 30 <= i && i < 40 =  arrLitGadget 
             -- 10%
@@ -238,10 +254,9 @@ expGadget en = do
             | otherwise =  numGadget 1000
     lottery rn
 
-binOpGadget :: Env -> IO String 
-binOpGadget en = do 
+binOpGadget :: Env -> String -> IO String 
+binOpGadget en op = do 
     left <- expGadget en 
-    op <- opGadget 
     right <- expGadget en 
     return $ left ++ op ++ right
 
@@ -293,14 +308,4 @@ validIdentGadget  = flip replicateM (randomRIO ('a', 'z')) =<< randomRIO (1, 4)
 
 
 collectStats :: ErrorAcc -> String
-collectStats eacc = 
-    let prelude = "#align(center)[#table(\n \ 
-    \ columns: (auto, auto),\n \ 
-    \ inset: 9pt, \n \ 
-    \ align: horizon,\n \ 
-    \ table.header( \n \ 
-    \ [type of exception], [\\# exceptions], \n \ 
-    \ ), \n"
-        epilude = ")\n]]\n"
-        content = M.foldrWithKey (\k v acc -> "[" ++ k ++ "], [" ++ show (length v) ++ "],\n" ++ acc) "" eacc
-    in prelude ++ content ++ epilude
+collectStats = M.foldrWithKey (\k v acc -> "category: " ++  k ++ ", errors: " ++ show (length v) ++ "\n" ++ acc) "" 

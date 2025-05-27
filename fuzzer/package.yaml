@@ -27,6 +27,9 @@ dependencies:
 - containers
 - ansi-terminal
 - time
+- Chart
+- Chart-cairo
+- Chart-cairo
 
 ghc-options:
 - -Wall

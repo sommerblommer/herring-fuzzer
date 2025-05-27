@@ -1,38 +1,14 @@
 
-shbf : ( rso : Int) -> ( i : Int) -> ( zi : Int) -> ( jdgu : Int) -> Int
-return 795
-return (hlna(688, 68, 135, zi[733]*jdgu))
-	let r = 140
-	in
-	let uwwx = 443
-	in
-	for u in 957..966 ->
-	jdgu[jdgu[317]]
-<-
+bgia : ( yjoo : Int) -> Int
+	let v = 123
+	in 
+	let d = [828,484,533,63]
+	in 
+	return yjoo/517
 
-	let vn = uwwx
-	in
-	return 478
-
-h : ( tifl : Int) -> ( bsrq : Int) -> ( r : Int) -> ( u : Int) -> ( mo : Int) -> Int
-	return 404
-
-nt : ( itb : Int) -> ( zbn : Int) -> ( ske : Int) -> Int
-	return 12+580-414/248
-
-l : ( jucj : Int) -> ( vf : Int) -> ( bm : Int) -> ( hzs : Int) -> Int
-	let cwwi = 935/243
-	in
-	let lg = jucj/(hlna([280,570,350], jucj, [464,530,699,776], jucj))
-	in
-	let dik = hzs
-	in
-	let v = dik+(hlna(170, 627, 224, jucj))-jucj*hzs
-	in
-	return [475]
-hlna : ( a : Int) -> ( lthw : Int) -> ( zez : Int) -> ( xhn : Int) -> Int
-	return xhn*880-943
+u : ( k : Int) -> ( wngs : Int) -> Int
+	return [433,799,306]+[263]/587
  main : Int
 
-	let _ = print((shbf(786, 111, 287, 607*[229]-[646,993,879]+756*108+948*425))/811)
+	let _ = print([924])
 	in return 0
