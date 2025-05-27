@@ -7,11 +7,10 @@ import GHC.IO.Exception (ExitCode(ExitFailure))
 import qualified Data.Map as M
 import System.Environment (getArgs)
 import Text.Read (readMaybe)
-import System.Console.ANSI
-import System.IO (hFlush, stdout)
 import Data.Time.Clock
 import Text.Printf (printf)
 import Plotter (plotStats, plotSaved)
+import LoadingBar (loader, createBar)
 
 data Env = Env {funs :: [(String, Int)], recDepth :: Int, localVars :: [String]}
 
@@ -40,21 +39,17 @@ parseArgs x = helper =<< x where
 main :: IO ()
 main = do
     amountOfRuns <- parseArgs getArgs
-    (res, stats) <- loop amountOfRuns [] M.empty
+    createBar
+    (res, stats) <- loop amountOfRuns amountOfRuns [] M.empty
     writeFile "report.txt" $ formatCategory res
     writeFile "stats.txt" $ collectStats res
     plotStats stats
     plotSaved 
 
-loop :: Int -> StatAcc -> ErrorAcc -> IO (ErrorAcc, StatAcc)  
-loop 0 scc acc = return (acc, scc)
-loop i scc acc = do 
-    clearLine
-    saveCursor 
-    putStr $ "runs left. " ++ show i
-    hFlush stdout
-    clearLine
-    restoreCursor
+loop :: Int -> Int -> StatAcc -> ErrorAcc -> IO (ErrorAcc, StatAcc)  
+loop 0 _ scc acc = return (acc, scc)
+loop i total scc acc = do 
+    loader i total
     t1 <- getCurrentTime
     input <- mainGadget
     t2 <- getCurrentTime
@@ -68,8 +63,8 @@ loop i scc acc = do
     let nscc = (length (lines input), realToFrac delta, show exitCode, stdErr):scc 
     c <- if null $ lines compiled then return "" else  return compiled
     case exitCode of 
-        ExitFailure _ ->  loop (i - 1) nscc $ categorizeError acc input stdOut stdErr c
-        _ -> loop (i - 1) nscc acc
+        ExitFailure _ ->  loop (i - 1) total nscc $ categorizeError acc input stdOut stdErr c
+        _ -> loop (i - 1) total nscc acc
 
 
 foo :: Int -> NominalDiffTime -> ExitCode -> String -> IO ()
@@ -215,11 +210,16 @@ functionGadget en argLen = do
     let start = name ++ " : "
     let args :: [IO String] -> IO (String, [String])
         args [] = return (" Int", [])
-        args [x] = x >>= \arg -> return ("( " ++ arg ++  " : Int) -> Int\n", [arg])
+        args [x] = do 
+            arg <- x 
+            rtyp1 <- typeGadget
+            rtyp2 <- typeGadget
+            return ("( " ++ arg ++  " : " ++ rtyp1 ++ ") ->" ++ rtyp2 ++ "\n", [arg])
         args (x:xs) = do 
             arg <- x
+            rtyp <- typeGadget
             (rest, restOfArgs) <- args xs
-            return ("( " ++ arg ++ " : Int) -> " ++ rest, arg : restOfArgs)
+            return ("( " ++ arg ++ " :" ++ rtyp ++ ") -> " ++ rest, arg : restOfArgs)
     (str, genArgs) <- args argNames
     let varenv = foldl (\acc arg -> acc {localVars = arg :localVars acc}) en genArgs 
     (e, le) <- blockGadget varenv
@@ -228,6 +228,13 @@ functionGadget en argLen = do
     return (start ++ str ++ e ++ "\treturn " ++ laste ++ "\n", nenv)
     
 
+
+typeGadget :: IO String 
+typeGadget = randomRIO (0 :: Int, 100) >>=  
+             \rn -> if rn < 20 then do 
+                t <- typeGadget 
+                return $ "[" ++ t ++ "]"
+             else return "Int"
 
 
 expGadget :: Env -> IO String

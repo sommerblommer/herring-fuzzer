@@ -26,6 +26,7 @@ source-repository head
 library
   exposed-modules:
       Lib
+      LoadingBar
       Plotter
   other-modules:
       Paths_fuzzer
