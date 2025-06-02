@@ -1,4 +1,4 @@
-module Plotter (plotStats, plotSaved) where 
+module Plotter (plotStats, plotFromData) where 
 import Graphics.Rendering.Chart.Easy
 import Graphics.Rendering.Chart.Backend.Cairo
 import qualified Data.Map as M 
@@ -11,27 +11,44 @@ plotStats :: [(Int, Double, String, String)] -> IO ()
 plotStats stats = 
     let avgs = calcAvg stats
     in toFile def "stats.png" $ do
-        layout_title .= "average runtime/LoC"
+        layout_title .= "Average runtime/LoC"
         layout_x_axis . laxis_override .= axisGridHide
         layout_y_axis . laxis_override .= axisGridHide
         plot (line "a" [[(d,v) | (d,v) <- avgs]])
 
+plotAmount :: Stats -> IO () 
+plotAmount stats = 
+    let avgs = sumLoCs stats
+    in toFile def "amounts.png" $ do
+        layout_title .= "Generated Programs / LoC"
+        layout_x_axis . laxis_override .= axisGridHide
+        layout_y_axis . laxis_override .= axisGridHide
+        layout_y_axis . laxis_title .= "# generated programs"
+        layout_x_axis . laxis_title .= "lines of code"
 
-plotSaved :: IO () 
-plotSaved = 
-    readSavedStats >>= 
-    \stats ->   let avgs = calcAvg stats
-                in toFile def "saved.png" $ do 
-                layout_title .= "average runtime/LoC"
-                layout_x_axis . laxis_override .= axisGridHide
-                layout_y_axis . laxis_override .= axisGridHide
-                plot (line "saved" [[(d,v) | (d,v) <- avgs]])
+        plot (line "generated programs" [[(d,v) | (d,v) <- avgs]])
+
+
+sumLoCs :: Stats -> [(Int, Int)]
+sumLoCs = M.toList . foldr (\(loc, _, _, _) -> M.insertWith (+) loc 1) M.empty 
+
+plotFromData :: IO () 
+plotFromData = do 
+    stats <- readSavedStats
+    plotAmount stats 
+    plotSaved stats
+
+plotSaved :: Stats ->  IO () 
+plotSaved stats = 
+    let avgs = calcAvg stats
+    in toFile def "saved.png" $ do 
+        layout_title .= "Average Time To Generate Per LoC"
+        layout_y_axis . laxis_title .= "time in seconds"
+        layout_x_axis . laxis_title .= "lines of code"
+        plot (line "" [[(d,v) | (d,v) <- avgs]])
 
 readSavedStats :: IO Stats 
 readSavedStats =  fmap (parseSavedStats .  split ',') . filter (/="") . lines <$> readFile "runtimes2.txt"
---    a <- filter (/="") . lines <$> readFile "runtimes2.txt"
---    print $ fmap (map (split ':') . split ',') a
---    return []
 
 parseSavedStats :: [String] -> (Int, Double, String, String)
 parseSavedStats [loc,time,es,err] =
