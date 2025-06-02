@@ -9,7 +9,7 @@ import System.Environment (getArgs)
 import Text.Read (readMaybe)
 import Data.Time.Clock
 import Text.Printf (printf)
-import Plotter (plotStats, plotSaved)
+import Plotter (plotStats, plotFromData)
 import LoadingBar (loader, createBar, restore)
 
 data Env = Env {funs :: [(String, Int)], recDepth :: Int, localVars :: [String]}
@@ -24,6 +24,7 @@ samPath = "/home/samuel/lbs-projekt/Herring-lang/.stack-work/dist/x86_64-linux/g
 samPathToInput :: String 
 samPathToInput = "/home/samuel/lbs-projekt/herring-fuzzer/fuzzer/input.txt"
 
+-- Category -> [(stdOut, stdErr, inputCode, llvmCode)]
 type ErrorAcc = M.Map String [(String, String, String, String)] 
 type StatAcc = [(Int, Double, String, String)]
 
@@ -45,7 +46,7 @@ main = do
     writeFile "report.txt" $ formatCategory res
     writeFile "stats.txt" $ collectStats res
     plotStats stats
-    plotSaved 
+    plotFromData 
 
 
 loop :: Int -> Int -> StatAcc -> ErrorAcc -> IO (ErrorAcc, StatAcc)  
@@ -60,7 +61,7 @@ loop i total scc acc = do
     compiled <- readFile "output.ll"  
     t3 <- getCurrentTime
     let delta = t2 `diffUTCTime` t1
-    let _delta2 = t3 `diffUTCTime` t1
+    let _delta2 = t3 `diffUTCTime` t2
     foo (length (lines input)) delta exitCode stdErr
     let nscc = (length (lines input), realToFrac delta, show exitCode, stdErr):scc 
     c <- if null $ lines compiled then return "" else  return compiled
@@ -104,6 +105,16 @@ formatOut (stdOut, stdErr, code, com) =
     in let errBanner = stars ++ " stdErr " ++ stars ++ "\n"
     in let compBanner = stars ++ " compiled " ++ stars ++ "\n"
     in outBanner ++ stdOut ++ errBanner ++ stdErr ++ codeBanner ++ code ++ compBanner ++ com ++ "\n"
+
+simpleReduction :: ErrorAcc -> ErrorAcc 
+simpleReduction = 
+    M.map (snd . foldr (\e@(_, err, _, _) (acc, acc2) -> 
+                            if err `elem` acc 
+                            then (acc, acc2) 
+                            else (err : acc, e : acc2) 
+                        ) ([], []) 
+          ) 
+
 
 emptyEnv :: Env 
 emptyEnv = Env {funs = [], recDepth = 0, localVars = []}
@@ -250,8 +261,10 @@ expGadget en = do
             | 10 <= i && i < 30 = opGadget >>= binOpGadget en 
             -- 10%
             | 30 <= i && i < 40 =  arrLitGadget 
-            -- 10%
-            | 40 <= i && i < 50 =   arrLookupGadget en
+            -- 5%
+            | 40 <= i && i < 45 =   arrLookupGadget en
+            -- 5%
+            | 45 <= i && i < 50 = blockGadget en >>= return . fst
             -- 20%
             | 50 <= i && i < 70 =   do 
                 let len = length $ localVars en
